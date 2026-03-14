@@ -448,7 +448,7 @@ def save_mapping_visualizations(
     out_dir: Optional[Path | str] = None
 ):
     if out_dir is None:
-        out_dir = Path(__file__).resolve().parent.parent / "mapping_visualizations"
+        out_dir = Path(__file__).resolve().parent / "mapping_visualizations"
     else:
         out_dir = Path(out_dir)
 
