@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from qiskit import QuantumCircuit
 from qiskit_ibm_runtime.fake_provider.fake_backend import FakeBackendV2
+from noise_mapping_experiment.noise_mapping_exp import BackendErrors
 
 @dataclass
 class CompilerState:
@@ -42,8 +43,8 @@ class RLCompiler(gym.Env):
 
     def __init__(
         self,
-        circuit: Any,
-        backend_info: Any,
+        circuit: QuantumCircuit,
+        backend_info: BackendErrors,
         max_logical_qubits: Optional[int] = None,   # constraint for input size
         reward_mode: str = "murali_proxy",  # reward based on Murali et al. evaluations
         invalid_action_penalty: float = -5.0,   # default large deduction for invalid mapping
@@ -131,13 +132,6 @@ class RLCompiler(gym.Env):
         3. If all logical qubits have now been assigned, evaluate the final mapping and terminate.
         4. Otherwise, continue to next step (next logical qubit).
 
-        The reward may be based on the probability that the assigned mapping outputs an expected
-        value, after running many simulations with Qiskit. Alternatively, other reward designs
-        may be considered, such as a backend-aware noise penalty, circuit depth penalty, local
-        placement quality, etc.
-
-        Note that reward needs to be normalized in [-1, 1].
-
         Returns:
             observation, reward, terminated (bool), truncated (bool), info
         """
@@ -182,29 +176,17 @@ class RLCompiler(gym.Env):
         """
         pass
 
-    # ----------------------------------------------------------------------
-    # Helper methods to implement
-    # ----------------------------------------------------------------------
-
-    def _infer_num_logical_qubits(self, circuit: Any) -> int:
-        """
-        Extract the number of logical qubits from the input circuit.
-
-        In your actual implementation, this should read from the QuantumCircuit
-        object and possibly support filtering to a smaller benchmark instance.
-        """
+    # HELPERS
+    def _infer_num_logical_qubits(self, circuit: QuantumCircuit) -> int:
         return circuit.num_qubits
 
-    def _infer_num_physical_qubits(self, backend_info: Any) -> int:
-        """
-        Extract the number of physical qubits from the backend / backend-error
-        structure.
-        """
+    def _infer_num_physical_qubits(self, backend_info: BackendErrors) -> int:
         return len(backend_info.readout_error)
 
     def _get_observation(self) -> np.ndarray:
         """
-        Convert the current partial mapping state into a flat numeric observation.
+        Convert the current partial mapping state into a flat numeric observation. The
+        current implementation is quite simple.
 
         Suggested components:
         - logical_to_physical with -1 for unassigned
@@ -213,8 +195,6 @@ class RLCompiler(gym.Env):
         - readout-error vector
         - optional graph-derived features
         - optional logical-interaction features for remaining qubits
-
-        This scaffold only includes a simple base observation.
         """
         assert self.state is not None
 
@@ -233,16 +213,9 @@ class RLCompiler(gym.Env):
 
     def _is_valid_action(self, action: int) -> bool:
         """
-        Check whether the chosen physical qubit can be assigned at this step.
-
-        Base validity:
-        - action index must be in range
-        - physical qubit must not already be occupied
-
-        Possible future extensions:
-        - restrict to candidate sets based on interaction graph
-        - topology-aware feasibility filtering
-        - symmetry-reduction logic
+        Check whether the chosen physical qubit can be assigned at this step. The action
+        corresponds to the index of a physical qubit. This index must be in range, and the
+        physical qubit must not be occupied already.
         """
         assert self.state is not None
 
@@ -254,103 +227,37 @@ class RLCompiler(gym.Env):
 
     def _evaluate_final_layout(self, layout: List[int]) -> float:
         """
-        Evaluate the completed logical-to-physical mapping.
+        Reward based on the completed logical-to-physical mapping. This reward may be inspired
+        by techniques used in the noise mapping experiment. For example, some ideas:
+        - Murali-inspired score that combines readout reliability of mapped qubits with the
+        best path reliability for logical CX interactions.
+        - Success probability based on success rate for circuit on a simulator.
 
-        This is where your real experiment logic plugs in.
-
-        Possible reward modes:
-        ------------------------------------------------------------------
-        1. 'murali_proxy'
-           Use a Murali-inspired score combining:
-           - readout reliability of mapped qubits
-           - best path reliability for logical CX interactions
-
-        2. 'transpile_cost'
-           Transpile the circuit with the chosen layout and score based on:
-           - depth
-           - 2Q gate count
-           - SWAP count
-           - total operation count
-
-        3. 'canary_success'
-           Execute a canary / benchmark circuit on a simulator or fake backend
-           and reward by empirical success probability.
-
-        4. 'hybrid'
-           Combine static proxy and empirical execution metrics.
-        ------------------------------------------------------------------
-
-        This method should call the experiment utilities you already wrote,
-        rather than reimplementing them here.
+        Note that reward needs to be normalized in [-1, 1] for training stability.
         """
         if self.reward_mode == "murali_proxy":
             return self._murali_proxy_reward(layout)
-        elif self.reward_mode == "transpile_cost":
-            return self._transpile_cost_reward(layout)
         elif self.reward_mode == "canary_success":
             return self._canary_success_reward(layout)
-        elif self.reward_mode == "hybrid":
-            return self._hybrid_reward(layout)
         else:
-            raise ValueError(f"Unknown reward_mode: {self.reward_mode}")
+            raise ValueError(f"{self.reward_mode} is not implemented.")
 
     def _murali_proxy_reward(self, layout: List[int]) -> float:
         """
-        Placeholder for Murali-inspired static layout scoring.
-
-        Intended contents:
-        - compute readout reliability term
-        - compute logical-CX path reliability term
-        - combine with weighting factor omega
-        - return higher score for cleaner mappings
-
-        This should wrap your existing Murali-style scoring code.
-        """
-        return 0.0
-
-    def _transpile_cost_reward(self, layout: List[int]) -> float:
-        """
-        Placeholder for reward from transpiled circuit quality.
-
-        Intended contents:
-        - transpile with initial_layout=layout
-        - inspect depth and gate counts
-        - penalize SWAP-heavy or deep compilations
-        - optionally normalize across benchmarks
+        Evaluates similarly to Murali-style evaluation in noise mapping experiment.
         """
         return 0.0
 
     def _canary_success_reward(self, layout: List[int]) -> float:
         """
-        Placeholder for empirical reward from execution.
-
-        Intended contents:
-        - compile the circuit or a canary under this layout
-        - run on simulator / fake backend
-        - compute success probability from measurement counts
-        - reward mappings with better observed correctness
-        """
-        return 0.0
-
-    def _hybrid_reward(self, layout: List[int]) -> float:
-        """
-        Placeholder for a weighted combination of static and empirical rewards.
-
-        Example:
-            alpha * murali_proxy
-            + beta * canary_success
-            - gamma * transpile_depth_penalty
+        Evaluates similarly to success rate in noise mapping experiment, defined as the fraction
+        of outputs that correspond to expected values.
         """
         return 0.0
 
     def _build_info(self, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Build debugging / logging info returned by reset() and step().
-
-        Useful for:
-        - inspecting current partial mapping
-        - monitoring invalid actions
-        - tracking final layout and reward components
+        Useful info for debugging or stats during training.
         """
         assert self.state is not None
 
