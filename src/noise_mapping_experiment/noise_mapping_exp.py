@@ -491,7 +491,7 @@ def main():
     circuits = circuit_dict()
 
     # mapping strategies
-    method_names = ["Random", "Best-by-calib", "Worst-by-calib", "Murali-inspired", "Tannu-VQA-like"]
+    method_names = ["Random", "Best-by-calib", "Worst-by-calib", "Tannu-VQA-like"]
     results: Dict[str, Dict[str, float]] = {name: {} for name in circuits.keys()}
 
     for bench_name, (qc, ok) in circuits.items():
@@ -519,10 +519,6 @@ def main():
         results[bench_name]["Worst-by-calib"] = success_probability(worst_counts, ok)
         method_layouts["Best-by-calib"] = bestL
         method_layouts["Worst-by-calib"] = worstL
-
-        # Murali-inspired
-        results[bench_name]["Murali-inspired"] = results[bench_name]["Best-by-calib"]
-        method_layouts["Murali-inspired"] = bestL
 
         # Tannu-inspired VQA-like
         tannuL = pick_tannu_vqa_like(qc, be)
